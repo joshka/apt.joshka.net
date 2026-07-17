@@ -1,0 +1,16 @@
+FROM debian:13-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        apt-utils \
+        ca-certificates \
+        curl \
+        dpkg-dev \
+        git \
+        gnupg \
+        jq \
+        xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+

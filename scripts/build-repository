@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# shellcheck source=common
+source "$(dirname "$0")/common"
+
+usage() {
+  echo "usage: $0 <package-directory> [repository-directory]" >&2
+  exit 2
+}
+
+[[ $# -ge 1 && $# -le 2 ]] || usage
+
+package_dir=$(cd "$1" && pwd)
+repository_dir=${2:-"$repo_root/build/repository"}
+
+for command in apt-ftparchive dpkg-scanpackages gzip xz; do
+  need_command "$command"
+done
+
+rm -rf "$repository_dir"
+package_count=0
+while IFS= read -r -d '' deb; do
+  package=$(dpkg-deb --field "$deb" Package)
+  [[ $package =~ ^[a-z0-9][a-z0-9+.-]+$ ]] || die "invalid package name in $deb: $package"
+  pool_dir="$repository_dir/pool/main/${package:0:1}/$package"
+  install -d "$pool_dir"
+  cp "$deb" "$pool_dir/"
+  package_count=$((package_count + 1))
+done < <(find "$package_dir" -maxdepth 1 -type f -name '*.deb' -print0)
+((package_count > 0)) || die "no .deb packages found in $package_dir"
+
+for architecture in amd64 arm64; do
+  binary_dir="$repository_dir/dists/$REPOSITORY_SUITE/$REPOSITORY_COMPONENT/binary-$architecture"
+  install -d "$binary_dir"
+  (
+    cd "$repository_dir"
+    dpkg-scanpackages --multiversion --arch "$architecture" pool /dev/null
+  ) >"$binary_dir/Packages"
+  gzip -9n -c "$binary_dir/Packages" >"$binary_dir/Packages.gz"
+  xz -9e -c "$binary_dir/Packages" >"$binary_dir/Packages.xz"
+
+  for index in Packages Packages.gz Packages.xz; do
+    digest=$(sha256_file "$binary_dir/$index")
+    install -d "$binary_dir/by-hash/SHA256"
+    cp "$binary_dir/$index" "$binary_dir/by-hash/SHA256/$digest"
+  done
+done
+
+release_dir="$repository_dir/dists/$REPOSITORY_SUITE"
+apt-ftparchive \
+  -o "APT::FTPArchive::Release::Origin=$REPOSITORY_ORIGIN" \
+  -o "APT::FTPArchive::Release::Label=$REPOSITORY_LABEL" \
+  -o "APT::FTPArchive::Release::Suite=$REPOSITORY_SUITE" \
+  -o "APT::FTPArchive::Release::Codename=$REPOSITORY_CODENAME" \
+  -o 'APT::FTPArchive::Release::Architectures=amd64 arm64' \
+  -o "APT::FTPArchive::Release::Components=$REPOSITORY_COMPONENT" \
+  -o "APT::FTPArchive::Release::Description=$REPOSITORY_DESCRIPTION" \
+  -o 'APT::FTPArchive::Release::Acquire-By-Hash=yes' \
+  release "$release_dir" >"$release_dir/Release"
+
+cp "$repo_root/README.md" "$repository_dir/README.md"
+echo "Built unsigned repository at $repository_dir"

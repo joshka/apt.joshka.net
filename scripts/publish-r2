@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# shellcheck source=common
+source "$(dirname "$0")/common"
+
+repository_dir=${1:-"$repo_root/build/repository"}
+[[ -f "$repository_dir/dists/$REPOSITORY_SUITE/InRelease" ]] ||
+  die "signed repository not found at $repository_dir"
+
+wrangler=(npx --yes wrangler@latest)
+if command -v wrangler >/dev/null 2>&1; then
+  wrangler=(wrangler)
+fi
+
+mime_type() {
+  case "$1" in
+    *.deb) printf 'application/vnd.debian.binary-package\n' ;;
+    */Release.gpg) printf 'application/pgp-signature\n' ;;
+    *.gpg) printf 'application/pgp-keys\n' ;;
+    *.asc | */InRelease) printf 'application/pgp-signature\n' ;;
+    *.gz) printf 'application/gzip\n' ;;
+    *.xz) printf 'application/x-xz\n' ;;
+    *) printf 'text/plain; charset=utf-8\n' ;;
+  esac
+}
+
+upload() {
+  local relative=$1
+  local cache_control=$2
+  "${wrangler[@]}" r2 object put "$CLOUDFLARE_BUCKET/$relative" \
+    --remote \
+    --file "$repository_dir/$relative" \
+    --content-type "$(mime_type "$relative")" \
+    --cache-control "$cache_control" \
+    --force >/dev/null
+  echo "Uploaded $relative"
+}
+
+# Publish immutable payloads and content-addressed indexes first.
+while IFS= read -r relative; do
+  upload "$relative" 'public, max-age=31536000, immutable'
+done < <(
+  cd "$repository_dir"
+  find pool dists -type f \( -path '*/by-hash/*' -o -path 'pool/*' \) | sort
+)
+
+# Publish mutable indexes next. InRelease is the final commit point.
+while IFS= read -r relative; do
+  upload "$relative" 'public, max-age=300, must-revalidate'
+done < <(
+  cd "$repository_dir"
+  find . -type f \
+    ! -path './pool/*' \
+    ! -path '*/by-hash/*' \
+    ! -path "./dists/$REPOSITORY_SUITE/InRelease" \
+    -print | sed 's|^./||' | sort
+)
+
+upload "dists/$REPOSITORY_SUITE/InRelease" 'no-cache, must-revalidate'
+echo "Published $REPOSITORY_URL"

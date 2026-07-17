@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# shellcheck source=common
+source "$(dirname "$0")/common"
+
+usage() {
+  echo "usage: $0 <version> <amd64|arm64> [output-directory]" >&2
+  exit 2
+}
+
+[[ $# -ge 2 && $# -le 3 ]] || usage
+
+version=$(normalize_version "$1")
+architecture=$(debian_architecture "$2")
+target=$(rust_target "$architecture")
+output_dir=${3:-"$repo_root/build/packages"}
+package_version="${version}-0jj${PACKAGE_REVISION}"
+asset="jj-v${version}-${target}.tar.gz"
+
+for command in curl jq tar dpkg-deb gzip; do
+  need_command "$command"
+done
+
+host_architecture=$(dpkg --print-architecture)
+[[ $host_architecture == "$architecture" ]] ||
+  die "building $architecture requires a native $architecture environment (found $host_architecture)"
+
+work_dir=$(mktemp -d)
+trap 'rm -rf "$work_dir"' EXIT
+archive="$work_dir/$asset"
+release_json="$work_dir/release.json"
+
+echo "Downloading $asset"
+curl --fail --location --retry 3 --silent --show-error \
+  -H 'Accept: application/vnd.github+json' \
+  "https://api.github.com/repos/${UPSTREAM_REPOSITORY}/releases/tags/v${version}" \
+  >"$release_json"
+
+asset_url=$(jq -er --arg name "$asset" \
+  '.assets[] | select(.name == $name) | .browser_download_url' "$release_json")
+asset_digest=$(jq -er --arg name "$asset" \
+  '.assets[] | select(.name == $name) | .digest' "$release_json")
+[[ $asset_digest == sha256:* ]] || die "GitHub did not provide a SHA-256 digest for $asset"
+
+curl --fail --location --retry 3 --silent --show-error "$asset_url" --output "$archive"
+actual_digest=$(sha256_file "$archive")
+[[ $actual_digest == "${asset_digest#sha256:}" ]] || die "digest mismatch for $asset"
+
+tar -xzf "$archive" -C "$work_dir"
+upstream_dir="$work_dir"
+if [[ -d "$work_dir/jj-v${version}-${target}" ]]; then
+  upstream_dir="$work_dir/jj-v${version}-${target}"
+fi
+jj_binary="$upstream_dir/jj"
+[[ -x $jj_binary ]] || die "release archive does not contain an executable jj"
+
+package_root="$work_dir/package"
+install -d \
+  "$package_root/DEBIAN" \
+  "$package_root/usr/bin" \
+  "$package_root/usr/share/bash-completion/completions" \
+  "$package_root/usr/share/doc/$PACKAGE_NAME" \
+  "$package_root/usr/share/fish/vendor_completions.d" \
+  "$package_root/usr/share/man" \
+  "$package_root/usr/share/zsh/vendor-completions"
+
+install -m 0755 "$jj_binary" "$package_root/usr/bin/jj"
+"$jj_binary" util completion bash >"$package_root/usr/share/bash-completion/completions/jj"
+"$jj_binary" util completion fish >"$package_root/usr/share/fish/vendor_completions.d/jj.fish"
+"$jj_binary" util completion zsh >"$package_root/usr/share/zsh/vendor-completions/_jj"
+"$jj_binary" util install-man-pages "$package_root/usr/share/man"
+find "$package_root/usr/share/man" -type f -exec gzip -9n {} \;
+
+install -m 0644 "$upstream_dir/LICENSE" "$package_root/usr/share/doc/$PACKAGE_NAME/copyright"
+gzip -9n -c "$upstream_dir/README.md" >"$package_root/usr/share/doc/$PACKAGE_NAME/README.md.gz"
+
+installed_size=$(du -sk "$package_root/usr" | awk '{print $1}')
+cat >"$package_root/DEBIAN/control" <<EOF
+Package: $PACKAGE_NAME
+Version: $package_version
+Architecture: $architecture
+Maintainer: $PACKAGE_MAINTAINER
+Installed-Size: $installed_size
+Section: vcs
+Priority: optional
+Homepage: https://www.jj-vcs.dev/
+Depends: git (>= $MINIMUM_GIT_VERSION)
+Recommends: less
+Suggests: openssh-client
+Description: Git-compatible version control system
+ Jujutsu is a powerful version control system for software projects. It uses
+ Git repositories as a storage and interoperability layer while providing a
+ simpler user model, automatic rebasing, conflicts as first-class objects,
+ and an operation log with undo.
+EOF
+
+install -d "$output_dir"
+output="$output_dir/${PACKAGE_NAME}_${package_version}_${architecture}.deb"
+dpkg-deb --root-owner-group --build "$package_root" "$output"
+echo "Built $output"

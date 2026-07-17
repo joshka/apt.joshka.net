@@ -1,0 +1,167 @@
+name: Publish
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Upstream Jujutsu version; empty means latest stable
+        required: false
+        type: string
+      package_revision:
+        description: Packaging revision
+        default: "1"
+        required: true
+        type: string
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+      version: ${{ steps.release.outputs.version }}
+      package_version: ${{ steps.release.outputs.package_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: release
+        name: Select release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_REVISION: ${{ inputs.package_revision }}
+        run: |
+          set -euo pipefail
+          version=${INPUT_VERSION#v}
+          if [[ -z $version ]]; then
+            version=$(gh api repos/jj-vcs/jj/releases/latest --jq .tag_name)
+            version=${version#v}
+          fi
+          revision=${INPUT_REVISION:-1}
+          package_version="${version}-0jj${revision}"
+          publish=true
+          if [[ $GITHUB_EVENT_NAME == schedule ]] && \
+             curl -fsS https://apt.joshka.net/dists/stable/main/binary-amd64/Packages.gz | \
+             gzip -dc | grep -Fxq "Version: $package_version"; then
+            publish=false
+          fi
+          {
+            echo "version=$version"
+            echo "package_version=$package_version"
+            echo "publish=$publish"
+          } >>"$GITHUB_OUTPUT"
+
+  package:
+    if: needs.prepare.outputs.publish == 'true'
+    needs: prepare
+    strategy:
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl dpkg-dev jq xz-utils
+      - name: Build package
+        env:
+          PACKAGE_REVISION: ${{ inputs.package_revision }}
+        run: scripts/build-package "${{ needs.prepare.outputs.version }}" "${{ matrix.architecture }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.architecture }}
+          path: build/packages/*.deb
+
+  assemble:
+    if: needs.prepare.outputs.publish == 'true'
+    needs: [prepare, package]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: build/packages
+          merge-multiple: true
+      - name: Install repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg xz-utils
+      - name: Import signing key
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          echo "$APT_SIGNING_KEY" | base64 --decode | gpg --batch --import
+          fingerprint=$(gpg --batch --with-colons --list-secret-keys | \
+            awk -F: '$1 == "fpr" { print $10; exit }')
+          echo "SIGNING_FINGERPRINT=$fingerprint" >>"$GITHUB_ENV"
+      - name: Retain published package versions
+        run: scripts/download-existing-packages build/packages
+      - name: Build and sign repository
+        run: |
+          scripts/build-keyring-package "$SIGNING_FINGERPRINT" build/packages
+          scripts/build-repository build/packages build/repository
+          scripts/sign-repository "$SIGNING_FINGERPRINT" build/repository
+          cp build/packages/joshka-archive-keyring_1.1_all.deb \
+            build/repository/joshka-archive-keyring.deb
+      - name: Test package metadata
+        run: |
+          dpkg-deb --info build/packages/jujutsu_${{ needs.prepare.outputs.package_version }}_amd64.deb
+          dpkg-deb --contents \
+            build/packages/jujutsu_${{ needs.prepare.outputs.package_version }}_amd64.deb | \
+            grep -F './usr/share/man/man1/jj.1.gz'
+          grep -F "Version: ${{ needs.prepare.outputs.package_version }}" \
+            build/repository/dists/stable/main/binary-amd64/Packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repository
+          path: build/repository
+
+  test:
+    if: needs.prepare.outputs.publish == 'true'
+    needs: [prepare, assemble]
+    strategy:
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: repository
+          path: build/repository
+      - name: Install from the signed repository
+        run: sudo scripts/test-repository build/repository "${{ needs.prepare.outputs.package_version }}"
+
+  publish:
+    if: needs.prepare.outputs.publish == 'true'
+    needs: [prepare, test]
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: repository
+          path: build/repository
+      - name: Publish to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: scripts/publish-r2 build/repository

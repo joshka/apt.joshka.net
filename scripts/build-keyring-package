@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# shellcheck source=common
+source "$(dirname "$0")/common"
+
+usage() {
+  echo "usage: $0 <signing-key-fingerprint|public-key-file> [output-directory]" >&2
+  exit 2
+}
+
+[[ $# -ge 1 && $# -le 2 ]] || usage
+
+key_source=$1
+output_dir=${2:-"$repo_root/build/packages"}
+package=joshka-archive-keyring
+version=1.1
+
+need_command dpkg-deb
+
+work_dir=$(mktemp -d)
+trap 'rm -rf "$work_dir"' EXIT
+package_root="$work_dir/package"
+
+install -d \
+  "$package_root/DEBIAN" \
+  "$package_root/etc/apt/sources.list.d" \
+  "$package_root/usr/share/doc/$package" \
+  "$package_root/usr/share/keyrings"
+
+if [[ -f $key_source ]]; then
+  install -m 0644 "$key_source" "$package_root/usr/share/keyrings/apt.joshka.net.gpg"
+else
+  need_command gpg
+  gpg --batch --export "$key_source" >"$package_root/usr/share/keyrings/apt.joshka.net.gpg"
+fi
+cat >"$package_root/etc/apt/sources.list.d/apt-joshka-net.sources" <<EOF
+Types: deb
+URIs: $REPOSITORY_URL
+Suites: $REPOSITORY_SUITE
+Components: $REPOSITORY_COMPONENT
+Signed-By: /usr/share/keyrings/apt.joshka.net.gpg
+EOF
+
+cat >"$package_root/DEBIAN/control" <<EOF
+Package: $package
+Version: $version
+Architecture: all
+Maintainer: apt.joshka.net <apt@joshka.net>
+Section: misc
+Priority: optional
+Homepage: $REPOSITORY_URL
+Description: Signing key and source for apt.joshka.net
+ This package installs the signing key and deb822 source definition for the
+ apt.joshka.net package repository.
+EOF
+
+cat >"$package_root/usr/share/doc/$package/copyright" <<EOF
+Copyright: 2026 Joshka
+License: Apache-2.0
+EOF
+
+install -d "$output_dir"
+output="$output_dir/${package}_${version}_all.deb"
+dpkg-deb --root-owner-group --build "$package_root" "$output"
+echo "Built $output"

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# shellcheck source=common
+source "$(dirname "$0")/common"
+
+repository_dir=${1:-"$repo_root/build/repository"}
+expected_version=${2:-}
+
+[[ -f "$repository_dir/apt.joshka.net.gpg" ]] ||
+  die "signed repository not found at $repository_dir"
+need_command apt-get
+
+install -m 0644 "$repository_dir/apt.joshka.net.gpg" \
+  /usr/share/keyrings/apt.joshka.net.gpg
+cat >/etc/apt/sources.list.d/apt-joshka-net.sources <<EOF
+Types: deb
+URIs: file:$repository_dir
+Suites: $REPOSITORY_SUITE
+Components: $REPOSITORY_COMPONENT
+Signed-By: /usr/share/keyrings/apt.joshka.net.gpg
+EOF
+
+apt-get update
+apt-get install -y --no-install-recommends "$PACKAGE_NAME"
+jj --version
+jj status --ignore-working-copy >/dev/null 2>&1 || true
+test -x /usr/bin/jj
+test -f /usr/share/bash-completion/completions/jj
+test -f /usr/share/fish/vendor_completions.d/jj.fish
+test -f /usr/share/zsh/vendor-completions/_jj
+
+if [[ -n $expected_version ]]; then
+  installed=$(dpkg-query -W -f='${Version}' "$PACKAGE_NAME")
+  [[ $installed == "$expected_version" ]] ||
+    die "installed $installed, expected $expected_version"
+fi
+
+echo "Repository test passed"

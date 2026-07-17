@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# shellcheck source=common
+source "$(dirname "$0")/common"
+
+if (($# == 0)); then
+  echo "usage: $0 <version> [version ...]" >&2
+  exit 2
+fi
+
+for requested_version in "$@"; do
+  version=$(normalize_version "$requested_version")
+  for architecture in amd64 arm64; do
+    package="$repo_root/build/packages/${PACKAGE_NAME}_${version}-0jj${PACKAGE_REVISION}_${architecture}.deb"
+    if [[ -f $package ]]; then
+      echo "Already built $package"
+      continue
+    fi
+    "$repo_root/scripts/build-in-container" "$version" "$architecture"
+  done
+done
+
+echo 'Backfill packages are ready in build/packages'

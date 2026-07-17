@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# shellcheck source=common
+source "$(dirname "$0")/common"
+
+wrangler=(npx --yes wrangler@latest)
+if command -v wrangler >/dev/null 2>&1; then
+  wrangler=(wrangler)
+fi
+
+if ! "${wrangler[@]}" r2 bucket info "$CLOUDFLARE_BUCKET" >/dev/null 2>&1; then
+  "${wrangler[@]}" r2 bucket create "$CLOUDFLARE_BUCKET" \
+    --location "$CLOUDFLARE_LOCATION"
+fi
+
+if [[ -z ${CLOUDFLARE_ZONE_ID:-} ]]; then
+  die "set CLOUDFLARE_ZONE_ID to the zone ID for $CLOUDFLARE_ZONE"
+fi
+
+if ! "${wrangler[@]}" r2 bucket domain get "$CLOUDFLARE_BUCKET" \
+  --domain "$CLOUDFLARE_DOMAIN" >/dev/null 2>&1; then
+  "${wrangler[@]}" r2 bucket domain add "$CLOUDFLARE_BUCKET" \
+    --domain "$CLOUDFLARE_DOMAIN" \
+    --zone-id "$CLOUDFLARE_ZONE_ID" \
+    --min-tls 1.2 \
+    --force
+fi
+
+echo "$CLOUDFLARE_DOMAIN is connected to $CLOUDFLARE_BUCKET"
+

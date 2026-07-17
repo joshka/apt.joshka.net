@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+uid=${1:-'apt.joshka.net Repository <apt@joshka.net>'}
+
+gpg --batch --pinentry-mode loopback --passphrase '' \
+  --quick-generate-key "$uid" rsa3072 cert 2y
+fingerprint=$(gpg --batch --with-colons --list-keys "$uid" |
+  awk -F: '$1 == "fpr" { print $10; exit }')
+gpg --batch --pinentry-mode loopback --passphrase '' \
+  --quick-add-key "$fingerprint" rsa3072 sign 2y
+
+echo "$fingerprint"

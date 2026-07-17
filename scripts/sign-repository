@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# shellcheck source=common
+source "$(dirname "$0")/common"
+
+usage() {
+  echo "usage: $0 <signing-key-fingerprint> [repository-directory]" >&2
+  exit 2
+}
+
+[[ $# -ge 1 && $# -le 2 ]] || usage
+
+fingerprint=$1
+repository_dir=${2:-"$repo_root/build/repository"}
+release_dir="$repository_dir/dists/$REPOSITORY_SUITE"
+release_file="$release_dir/Release"
+[[ -f $release_file ]] || die "repository Release file not found: $release_file"
+
+need_command gpg
+
+gpg --batch --yes --local-user "$fingerprint" --armor --detach-sign \
+  --output "$release_dir/Release.gpg" "$release_file"
+gpg --batch --yes --local-user "$fingerprint" --clearsign \
+  --output "$release_dir/InRelease" "$release_file"
+gpg --batch --armor --export "$fingerprint" >"$repository_dir/apt.joshka.net.asc"
+gpg --batch --export "$fingerprint" >"$repository_dir/apt.joshka.net.gpg"
+
+echo "Signed repository with $fingerprint"
