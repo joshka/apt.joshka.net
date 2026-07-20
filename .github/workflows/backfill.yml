@@ -18,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -75,11 +76,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: package-*
-          path: build/packages
-          merge-multiple: true
+      - name: Download packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          install -d build/package-artifacts build/packages
+          gh run download "$GITHUB_RUN_ID" --pattern 'package-*' \
+            --dir build/package-artifacts
+          find build/package-artifacts -type f -name '*.deb' \
+            -exec cp {} build/packages/ \;
       - name: Install repository tools
         run: |
           sudo apt-get update
@@ -125,10 +130,10 @@ jobs:
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
-        with:
-          name: repository
-          path: build/repository
+      - name: Download repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name repository --dir build/repository
       - name: Install from the signed repository
         run: sudo scripts/test-repository build/repository
 
@@ -138,10 +143,10 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v8
-        with:
-          name: repository
-          path: build/repository
+      - name: Download repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --name repository --dir build/repository
       - name: Publish to R2
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
