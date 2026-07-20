@@ -6,6 +6,7 @@ set -euo pipefail
 source "$(dirname "$0")/common"
 
 output_dir=${1:-"$repo_root/build/packages"}
+manifest=${2:-}
 install -d "$output_dir"
 
 for command in curl gzip awk; do
@@ -14,6 +15,8 @@ done
 
 work_dir=$(mktemp -d)
 trap 'rm -rf "$work_dir"' EXIT
+filenames="$work_dir/filenames"
+: >"$filenames"
 
 for architecture in amd64 arm64; do
   index_url="$REPOSITORY_URL/dists/$REPOSITORY_SUITE/$REPOSITORY_COMPONENT/binary-$architecture/Packages.gz"
@@ -22,11 +25,17 @@ for architecture in amd64 arm64; do
     continue
   fi
   gzip -dc "$work_dir/Packages.gz" |
-    awk '/^Filename: / { print substr($0, 11) }' |
-    while IFS= read -r filename; do
-      output="$output_dir/${filename##*/}"
-      [[ -f $output ]] || curl --fail --location --retry 3 --silent --show-error \
-        "$REPOSITORY_URL/$filename" --output "$output"
-    done
+    awk '/^Filename: / { print substr($0, 11) }' >>"$filenames"
 done
 
+sort -u "$filenames" -o "$filenames"
+if [[ -n $manifest ]]; then
+  install -d "$(dirname "$manifest")"
+  cp "$filenames" "$manifest"
+fi
+
+while IFS= read -r filename; do
+  output="$output_dir/${filename##*/}"
+  curl --fail --location --retry 3 --silent --show-error \
+    "$REPOSITORY_URL/$filename" --output "$output"
+done <"$filenames"

@@ -107,15 +107,15 @@ jobs:
           fingerprint=$(gpg --batch --with-colons --list-secret-keys | \
             awk -F: '$1 == "fpr" { print $10; exit }')
           echo "SIGNING_FINGERPRINT=$fingerprint" >>"$GITHUB_ENV"
-      - name: Retain published package versions
-        run: scripts/download-existing-packages build/packages
       - name: Build and sign repository
         run: |
           scripts/build-keyring-package "$SIGNING_FINGERPRINT" build/packages
+          scripts/download-existing-packages build/packages build/published-pool
           scripts/build-repository build/packages build/repository
           scripts/sign-repository "$SIGNING_FINGERPRINT" build/repository
           cp build/packages/joshka-archive-keyring_1.1_all.deb \
             build/repository/joshka-archive-keyring.deb
+          cp build/published-pool build/repository/published-pool.txt
       - name: Test package metadata
         run: |
           dpkg-deb --info build/packages/jujutsu_${{ needs.prepare.outputs.package_version }}_amd64.deb

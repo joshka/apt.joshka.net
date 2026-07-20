@@ -11,9 +11,10 @@ For a publication, CI:
 1. Downloads the official `amd64` and `arm64` musl archives.
 1. Verifies each archive against the SHA-256 digest supplied by GitHub Releases.
 1. Produces `.deb` packages on native GitHub-hosted runners.
-1. Downloads packages already listed in the repository so pinned versions remain available.
+1. Downloads packages already listed in the repository so their immutable bytes remain
+   authoritative and pinned versions remain available.
 1. Builds and signs fresh APT indexes.
-1. Uploads immutable objects first and `InRelease` last.
+1. Uploads only new package payloads, followed by indexes and `InRelease` as the commit point.
 1. Tests clean `amd64` and `arm64` APT installations before publishing.
 
 ## GitHub configuration

@@ -6,6 +6,7 @@ set -euo pipefail
 source "$(dirname "$0")/common"
 
 repository_dir=${1:-"$repo_root/build/repository"}
+published_pool="$repository_dir/published-pool.txt"
 [[ -f "$repository_dir/dists/$REPOSITORY_SUITE/InRelease" ]] ||
   die "signed repository not found at $repository_dir"
 
@@ -41,7 +42,12 @@ upload() {
 
 # Publish immutable payloads and content-addressed indexes first.
 while IFS= read -r relative; do
-  upload "$relative" 'public, max-age=31536000, immutable'
+  if [[ $relative == pool/* && -f $published_pool ]] &&
+    grep -Fxq "$relative" "$published_pool"; then
+    echo "Retained $relative"
+  else
+    upload "$relative" 'public, max-age=31536000, immutable'
+  fi
 done < <(
   cd "$repository_dir"
   find pool dists -type f \( -path '*/by-hash/*' -o -path 'pool/*' \) | sort
@@ -55,6 +61,7 @@ done < <(
   find . -type f \
     ! -path './pool/*' \
     ! -path '*/by-hash/*' \
+    ! -path './published-pool.txt' \
     ! -path "./dists/$REPOSITORY_SUITE/InRelease" \
     -print | sed 's|^./||' | sort
 )
