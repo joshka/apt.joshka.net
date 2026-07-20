@@ -29,8 +29,8 @@ sudo apt update
 sudo apt install jujutsu
 ```
 
-Minimal Ubuntu container images run as root and do not include `sudo`, `curl`, or CA certificates.
-Bootstrap those images with:
+Minimal Debian and Ubuntu container images run as root and do not include `sudo`, `curl`, or CA
+certificates. Bootstrap those images with:
 
 ```shell
 apt-get update

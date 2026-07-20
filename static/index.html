@@ -35,8 +35,8 @@ sudo dpkg -i joshka-archive-keyring.deb
 sudo apt update
 sudo apt install jujutsu</code></pre>
       <h2>Minimal container</h2>
-      <p>Ubuntu container images run as root and omit <code>sudo</code> and
-        <code>curl</code>. Bootstrap them with:</p>
+      <p>Minimal Debian and Ubuntu container images run as root and omit
+        <code>sudo</code>, <code>curl</code>, and CA certificates. Bootstrap them with:</p>
       <pre><code>apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl
 curl -fLO https://apt.joshka.net/joshka-archive-keyring.deb
