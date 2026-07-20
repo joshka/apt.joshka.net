@@ -52,6 +52,9 @@ The initial repository signing-key fingerprint is
 `4AA8 DA8B 725F 982F 6D81 E970 9996 CE33 A848 3178`.
 
 The custom domain is connected directly to R2. The `r2.dev` development URL remains disabled.
+Because public R2 buckets do not select an index object automatically, the `joshka.net` zone has
+a URL Rewrite Rule named `apt.joshka.net root index`. It rewrites only
+`https://apt.joshka.net/` to `/index.html`; the repository build publishes that object.
 
 To recreate the infrastructure in another account, set the destination zone ID and run:
 
