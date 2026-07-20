@@ -29,6 +29,18 @@ sudo apt update
 sudo apt install jujutsu
 ```
 
+Minimal Ubuntu container images run as root and do not include `sudo`, `curl`, or CA certificates.
+Bootstrap those images with:
+
+```shell
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates curl
+curl -fLO https://apt.joshka.net/joshka-archive-keyring.deb
+dpkg -i joshka-archive-keyring.deb
+apt-get update
+apt-get install -y jujutsu
+```
+
 The bootstrap package installs only:
 
 - `/usr/share/keyrings/apt.joshka.net.gpg`
