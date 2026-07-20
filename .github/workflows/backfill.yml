@@ -1,0 +1,149 @@
+name: Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      versions:
+        description: Space- or comma-separated upstream Jujutsu versions
+        required: true
+        type: string
+      package_revision:
+        description: Packaging revision
+        default: "1"
+        required: true
+        type: string
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      versions: ${{ steps.versions.outputs.json }}
+    steps:
+      - id: versions
+        name: Validate versions
+        env:
+          INPUT_VERSIONS: ${{ inputs.versions }}
+        run: |
+          set -euo pipefail
+          read -ra requested <<<"${INPUT_VERSIONS//,/ }"
+          ((${#requested[@]} > 0)) || { echo 'No versions requested' >&2; exit 2; }
+          normalized=()
+          for version in "${requested[@]}"; do
+            version=${version#v}
+            [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+              echo "Invalid version: $version" >&2
+              exit 2
+            }
+            normalized+=("$version")
+          done
+          json=$(printf '%s\n' "${normalized[@]}" | jq -Rsc \
+            'split("\n") | map(select(length > 0)) | unique')
+          echo "json=$json" >>"$GITHUB_OUTPUT"
+
+  package:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(needs.prepare.outputs.versions) }}
+        architecture: [amd64, arm64]
+    runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends curl dpkg-dev jq xz-utils
+      - name: Build package
+        env:
+          PACKAGE_REVISION: ${{ inputs.package_revision }}
+        run: scripts/build-package "${{ matrix.version }}" "${{ matrix.architecture }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.version }}-${{ matrix.architecture }}
+          path: build/packages/*.deb
+
+  assemble:
+    needs: [prepare, package]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: build/packages
+          merge-multiple: true
+      - name: Install repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends apt-utils dpkg-dev gnupg xz-utils
+      - name: Import signing key
+        env:
+          APT_SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+        run: |
+          echo "$APT_SIGNING_KEY" | base64 --decode | gpg --batch --import
+          fingerprint=$(gpg --batch --with-colons --list-secret-keys | \
+            awk -F: '$1 == "fpr" { print $10; exit }')
+          echo "SIGNING_FINGERPRINT=$fingerprint" >>"$GITHUB_ENV"
+      - name: Retain published package versions
+        run: scripts/download-existing-packages build/packages
+      - name: Build and sign repository
+        run: |
+          scripts/build-keyring-package "$SIGNING_FINGERPRINT" build/packages
+          scripts/build-repository build/packages build/repository
+          scripts/sign-repository "$SIGNING_FINGERPRINT" build/repository
+          cp build/packages/joshka-archive-keyring_1.1_all.deb \
+            build/repository/joshka-archive-keyring.deb
+      - name: Test backfill metadata
+        env:
+          PACKAGE_REVISION: ${{ inputs.package_revision }}
+          VERSIONS: ${{ needs.prepare.outputs.versions }}
+        run: |
+          for architecture in amd64 arm64; do
+            index="build/repository/dists/stable/main/binary-$architecture/Packages"
+            while IFS= read -r version; do
+              grep -Fxq "Version: ${version}-0jj${PACKAGE_REVISION}" "$index"
+            done < <(jq -r '.[]' <<<"$VERSIONS")
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repository
+          path: build/repository
+
+  test:
+    needs: assemble
+    strategy:
+      matrix:
+        architecture: [amd64, arm64]
+    runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: repository
+          path: build/repository
+      - name: Install from the signed repository
+        run: sudo scripts/test-repository build/repository
+
+  publish:
+    needs: test
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: repository
+          path: build/repository
+      - name: Publish to R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: scripts/publish-r2 build/repository

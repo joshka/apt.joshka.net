@@ -95,8 +95,14 @@ scripts/backfill-jj 0.40.0 0.41.0 0.42.0
 ```
 
 The builder skips package files already present locally. In hosted automation, manually dispatch
-the publish workflow once per version; its concurrency group serializes the runs, and every run
-retains all packages referenced by the currently published indexes.
+the Backfill workflow with a space- or comma-separated version list. GitHub builds every
+version/architecture pair in parallel, then assembles, tests, signs, and publishes the repository
+once. The shared publication concurrency group prevents a backfill from racing a normal release.
+
+```shell
+gh workflow run Backfill --ref main \
+  -f versions='0.40.0 0.41.0 0.42.0'
+```
 
 ## Publish
 

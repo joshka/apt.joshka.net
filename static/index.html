@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>apt.joshka.net</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+
+      body {
+        margin: 0 auto;
+        max-width: 48rem;
+        padding: 4rem 1.5rem;
+        line-height: 1.55;
+      }
+
+      h1 { font-size: 2rem; }
+      pre {
+        overflow-x: auto;
+        padding: 1rem;
+        border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+        border-radius: 0.4rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>apt.joshka.net</h1>
+      <p>A signed APT repository for Debian and Ubuntu. Install Jujutsu with:</p>
+      <pre><code>curl -fLO https://apt.joshka.net/joshka-archive-keyring.deb
+sudo dpkg -i joshka-archive-keyring.deb
+sudo apt update
+sudo apt install jujutsu</code></pre>
+      <p>Supported systems: Ubuntu 24.04 LTS or newer and Debian 13 or newer,
+        on <code>amd64</code> and <code>arm64</code>.</p>
+      <p><a href="https://github.com/joshka/apt.joshka.net">Source and maintainer documentation</a>
+        · <a href="README.md">Repository details</a></p>
+    </main>
+  </body>
+</html>

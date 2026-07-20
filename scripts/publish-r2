@@ -22,6 +22,7 @@ mime_type() {
     *.asc | */InRelease) printf 'application/pgp-signature\n' ;;
     *.gz) printf 'application/gzip\n' ;;
     *.xz) printf 'application/x-xz\n' ;;
+    *.html) printf 'text/html; charset=utf-8\n' ;;
     *) printf 'text/plain; charset=utf-8\n' ;;
   esac
 }

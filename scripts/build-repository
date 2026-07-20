@@ -61,4 +61,5 @@ apt-ftparchive \
   release "$release_dir" >"$release_dir/Release"
 
 cp "$repo_root/README.md" "$repository_dir/README.md"
+cp "$repo_root/static/index.html" "$repository_dir/index.html"
 echo "Built unsigned repository at $repository_dir"
