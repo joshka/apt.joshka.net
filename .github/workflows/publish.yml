@@ -79,7 +79,7 @@ jobs:
         env:
           PACKAGE_REVISION: ${{ inputs.package_revision }}
         run: scripts/build-package "${{ needs.prepare.outputs.version }}" "${{ matrix.architecture }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package-${{ matrix.architecture }}
           path: build/packages/*.deb
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: package-*
           path: build/packages
@@ -124,7 +124,7 @@ jobs:
             grep -F './usr/share/man/man1/jj.1.gz'
           grep -F "Version: ${{ needs.prepare.outputs.package_version }}" \
             build/repository/dists/stable/main/binary-amd64/Packages
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: repository
           path: build/repository
@@ -142,7 +142,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: repository
           path: build/repository
@@ -156,7 +156,7 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: repository
           path: build/repository

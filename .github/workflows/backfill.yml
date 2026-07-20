@@ -65,7 +65,7 @@ jobs:
         env:
           PACKAGE_REVISION: ${{ inputs.package_revision }}
         run: scripts/build-package "${{ matrix.version }}" "${{ matrix.architecture }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: package-${{ matrix.version }}-${{ matrix.architecture }}
           path: build/packages/*.deb
@@ -75,7 +75,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: package-*
           path: build/packages
@@ -112,7 +112,7 @@ jobs:
               grep -Fxq "Version: ${version}-0jj${PACKAGE_REVISION}" "$index"
             done < <(jq -r '.[]' <<<"$VERSIONS")
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: repository
           path: build/repository
@@ -125,7 +125,7 @@ jobs:
     runs-on: ${{ matrix.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: repository
           path: build/repository
@@ -138,7 +138,7 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: repository
           path: build/repository
