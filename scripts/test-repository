@@ -8,6 +8,9 @@ source "$(dirname "$0")/common"
 repository_dir=${1:-"$repo_root/build/repository"}
 expected_version=${2:-}
 
+[[ -d "$repository_dir" ]] || die "repository not found at $repository_dir"
+repository_dir=$(cd "$repository_dir" && pwd -P)
+
 [[ -f "$repository_dir/apt.joshka.net.gpg" ]] ||
   die "signed repository not found at $repository_dir"
 need_command apt-get
