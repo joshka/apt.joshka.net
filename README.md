@@ -18,6 +18,15 @@ be handed over without taking unrelated `apt.joshka.net` packages with it.
 Jujutsu requires Git 2.41 or newer. Ubuntu 22.04 and Debian 12 ship older Git versions, so this
 repository does not claim to support them or distribute a replacement Git package.
 
+## Distribution packages
+
+Debian testing and unstable, and Ubuntu 26.10 or newer, package Jujutsu as `jujutsu`. On those
+systems, `sudo apt install jujutsu` works without this repository. Distribution packages can lag
+upstream releases; for example, Ubuntu 26.10 shipped 0.44.0 when 0.46.0 was current. This
+repository mainly serves Debian stable and Ubuntu LTS releases, which do not package Jujutsu, and
+anyone who wants new releases as soon as they are published. With both sources configured, APT
+installs whichever version is newer.
+
 ## Install
 
 Install the repository bootstrap package, then install Jujutsu normally:
